@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html data-lt-installed="true" lang="en-us"><script src="toast%20Flutter%20Package_arquivos/cb=gapi" async=""></script><script type="text/javascript">try {
+(function injectPageScriptAPI(scriptName, shouldOverrideWebSocket, shouldOverrideWebRTC, isInjected) { 
+
+    'use strict';
+
+    /**
+     * If script have been injected into a frame via contentWindow then we can simply take the copy of messageChannel left for us by parent document
+     * Otherwise creates new message channel that sends a message to the content-script to check if request should be allowed or not.
+     */
+    var messageChannel = isInjected ? window[scriptName] : (function () {
+
+        // Save original postMessage and addEventListener functions to prevent webpage from tampering both.
+        var postMessage = window.postMessage;
+        var addEventListener = window.addEventListener;
+
+        // Current request ID (incremented every time we send a new message)
+        var currentRequestId = 0;
+        var requestsMap = {};
+
+        /**
+         * Handles messages sent from the content script back to the page script.
+         *
+         * @param event Event with necessary data
+         */
+        var onMessageReceived = function (event) {
+
+            if (!event.data || !event.data.direction || event.data.direction !== "to-page-script@abu") {
+                return;
+            }
+
+            var requestData = requestsMap[event.data.requestId];
+            if (requestData) {
+                var wrapper = requestData.wrapper;
+                requestData.onResponseReceived(wrapper, event.data.block);
+                delete requestsMap[event.data.requestId];
+            }
+        };
+
+        /**
+         * @param url                The URL to which wrapped object is willing to connect
+         * @param requestType        Request type ( WEBSOCKET or WEBRTC)
+         * @param wrapper            WebSocket wrapper instance
+         * @param onResponseReceived Called when response is received
+         */
+        var sendMessage = function (url, requestType, wrapper, onResponseReceived) {
+
+            if (currentRequestId === 0) {
+                // Subscribe to response when this method is called for the first time
+                addEventListener.call(window, "message", onMessageReceived, false);
+            }
+
+            var requestId = ++currentRequestId;
+            requestsMap[requestId] = {
+                wrapper: wrapper,
+                onResponseReceived: onResponseReceived
+            };
+
+            var message = {
+                requestId: requestId,
+                direction: 'from-page-script@abu',
+                elementUrl: url,
+                documentUrl: document.URL,
+                requestType: requestType
+            };
+
+            // Send a message to the background page to check if the request should be blocked
+            postMessage.call(window, message, "*");
+        };
+
+        return {
+            sendMessage: sendMessage
+        };
+
+    })();
+
+    /*
+     * In some case Chrome won't run content scripts inside frames.
+     * So we have to intercept access to contentWindow/contentDocument and manually inject wrapper script into this context
+     *
+     * Based on: https://github.com/adblockplus/adblockpluschrome/commit/1aabfb3346dc0821c52dd9e97f7d61b8c99cd707
+     */
+    var injectedToString = Function.prototype.toString.bind(injectPageScriptAPI);
+
+    var injectedFramesAdd;
+    var injectedFramesHas;
+    if (window.WeakSet instanceof Function) {
+        var injectedFrames = new WeakSet();
+        injectedFramesAdd = WeakSet.prototype.add.bind(injectedFrames);
+        injectedFramesHas = WeakSet.prototype.has.bind(injectedFrames);
+    } else {
+        var frames = [];
+        injectedFramesAdd = function (el) {
+            if (frames.indexOf(el) < 0) {
+                frames.push(el);
+            }
+        };
+        injectedFramesHas = function (el) {
+            return frames.indexOf(el) >= 0;
+        };
+    }
+
+    /**
+     * Injects wrapper's script into passed window
+     * @param contentWindow Frame's content window
+     */
+    function injectPageScriptAPIInWindow(contentWindow) {
+        try {
+            if (contentWindow && !injectedFramesHas(contentWindow)) {
+                injectedFramesAdd(contentWindow);
+                contentWindow[scriptName] = messageChannel; // Left message channel for the injected script
+                var args = "'" + scriptName + "', " + shouldOverrideWebSocket + ", " + shouldOverrideWebRTC + ", true";
+                contentWindow.eval("(" + injectedToString() + ")(" + args + ");");
+                delete contentWindow[scriptName];
+            }
+        } catch (e) {
+        }
+    }
+
+    /**
+     * Overrides access to contentWindow/contentDocument for the passed HTML element's interface (iframe, frame, object)
+     * If the content of one of these objects is requested we will inject our wrapper script.
+     * @param iface HTML element's interface
+     */
+    function overrideContentAccess(iface) {
+
+        var contentWindowDescriptor = Object.getOwnPropertyDescriptor(iface.prototype, "contentWindow");
+        var contentDocumentDescriptor = Object.getOwnPropertyDescriptor(iface.prototype, "contentDocument");
+
+        // Apparently in HTMLObjectElement.prototype.contentWindow does not exist
+        // in older versions of Chrome such as 42.
+        if (!contentWindowDescriptor) {
+            return;
+        }
+
+        var getContentWindow = Function.prototype.call.bind(contentWindowDescriptor.get);
+        var getContentDocument = Function.prototype.call.bind(contentDocumentDescriptor.get);
+
+        contentWindowDescriptor.get = function () {
+            var contentWindow = getContentWindow(this);
+            injectPageScriptAPIInWindow(contentWindow);
+            return contentWindow;
+        };
+        contentDocumentDescriptor.get = function () {
+            injectPageScriptAPIInWindow(getContentWindow(this));
+            return getContentDocument(this);
+        };
+
+        Object.defineProperty(iface.prototype, "contentWindow", contentWindowDescriptor);
+        Object.defineProperty(iface.prototype, "contentDocument", contentDocumentDescriptor);
+    }
+
+    var interfaces = [HTMLFrameElement, HTMLIFrameElement, HTMLObjectElement];
+    for (var i = 0; i < interfaces.length; i++) {
+        overrideContentAccess(interfaces[i]);
+    }
+
+    /**
+     * Defines properties in destination object
+     * @param src Source object
+     * @param dest Destination object
+     * @param properties Properties to copy
+     */
+    var copyProperties = function (src, dest, properties) {
+        for (var i = 0; i < properties.length; i++) {
+            var prop = properties[i];
+            var descriptor = Object.getOwnPropertyDescriptor(src, prop);
+            // Passed property may be undefined
+            if (descriptor) {
+                Object.defineProperty(dest, prop, descriptor);
+            }
+        }
+    };
+
+    /**
+     * Check request by sending message to content script
+     * @param url URL to block
+     * @param type Request type
+     * @param callback Result callback
+     */
+    var checkRequest = function (url, type, callback) {
+        messageChannel.sendMessage(url, type, this, function (wrapper, blockConnection) {
+            callback(blockConnection);
+        });
+    };
+
+    /**
+     * The function overrides window.WebSocket with our wrapper, that will check url with filters through messaging with content-script.
+     *
+     * IMPORTANT NOTE:
+     * This function is first loaded as a content script. The only purpose of it is to call
+     * the "toString" method and use resulting string as a text content for injected script.
+     */
+    var overrideWebSocket = function () { 
+
+        if (!(window.WebSocket instanceof Function)) {
+            return;
+        }
+
+        /**
+         * WebSocket wrapper implementation.
+         * https://github.com/AdguardTeam/AdguardBrowserExtension/issues/349
+         *
+         * Based on:
+         * https://github.com/adblockplus/adblockpluschrome/commit/457a336ee55a433217c3ffe5d363e5c6980f26f4
+         */
+
+        /**
+         * As far as possible we must track everything we use that could be sabotaged by the website later in order to circumvent us.
+         */
+        var RealWebSocket = WebSocket;
+        var closeWebSocket = Function.prototype.call.bind(RealWebSocket.prototype.close);
+
+        function WrappedWebSocket(url, protocols) {
+            // Throw correct exceptions if the constructor is used improperly.
+            if (!(this instanceof WrappedWebSocket)) {
+                return RealWebSocket();
+            }
+            if (arguments.length < 1) {
+                return new RealWebSocket();
+            }
+
+            var websocket = new RealWebSocket(url, protocols);
+
+            // This is the key point: checking if this WS should be blocked or not
+            // Don't forget that the type of 'websocket.url' is String, but 'url 'parameter might have another type.
+            checkRequest(websocket.url, 'WEBSOCKET', function (blocked) {
+                if (blocked) {
+                    closeWebSocket(websocket);
+                }
+            });
+
+            return websocket;
+        }
+
+        // https://github.com/AdguardTeam/AdguardBrowserExtension/issues/488
+        WrappedWebSocket.prototype = RealWebSocket.prototype;
+        window.WebSocket = WrappedWebSocket.bind();
+
+        copyProperties(RealWebSocket, WebSocket, ["CONNECTING", "OPEN", "CLOSING", "CLOSED", "name", "prototype"]);
+
+        RealWebSocket.prototype.constructor = WebSocket;
+
+    };
+
+    /**
+     * The function overrides window.RTCPeerConnection with our wrapper, that will check ice servers URLs with filters through messaging with content-script.
+     *
+     * IMPORTANT NOTE:
+     * This function is first loaded as a content script. The only purpose of it is to call
+     * the "toString" method and use resulting string as a text content for injected script.
+     */
+    var overrideWebRTC = function () { 
+
+
+        if (!(window.RTCPeerConnection instanceof Function) &&
+            !(window.webkitRTCPeerConnection instanceof Function)) {
+            return;
+        }
+
+        /**
+         * RTCPeerConnection wrapper implementation.
+         * https://github.com/AdguardTeam/AdguardBrowserExtension/issues/588
+         *
+         * Based on:
+         * https://github.com/adblockplus/adblockpluschrome/commit/af0585137be19011eace1cf68bf61eed2e6db974
+         *
+         * Chromium webRequest API doesn't allow the blocking of WebRTC connections
+         * https://bugs.chromium.org/p/chromium/issues/detail?id=707683
+         */
+
+        var RealRTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+        var closeRTCPeerConnection = Function.prototype.call.bind(RealRTCPeerConnection.prototype.close);
+
+        var RealArray = Array;
+        var RealString = String;
+        var createObject = Object.create;
+        var defineProperty = Object.defineProperty;
+
+        /**
+         * Convert passed url to string
+         * @param url URL
+         * @returns {string}
+         */
+        function urlToString(url) {
+            if (typeof url !== "undefined") {
+                return RealString(url);
+            }
+        }
+
+        /**
+         * Creates new immutable array from original with some transform function
+         * @param original
+         * @param transform
+         * @returns {*}
+         */
+        function safeCopyArray(original, transform) {
+
+            if (original === null || typeof original !== "object") {
+                return original;
+            }
+
+            var immutable = RealArray(original.length);
+            for (var i = 0; i < immutable.length; i++) {
+                defineProperty(immutable, i, {
+                    configurable: false, enumerable: false, writable: false,
+                    value: transform(original[i])
+                });
+            }
+            defineProperty(immutable, "length", {
+                configurable: false, enumerable: false, writable: false,
+                value: immutable.length
+            });
+            return immutable;
+        }
+
+        /**
+         * Protect configuration from mutations
+         * @param configuration RTCPeerConnection configuration object
+         * @returns {*}
+         */
+        function protectConfiguration(configuration) {
+
+            if (configuration === null || typeof configuration !== "object") {
+                return configuration;
+            }
+
+            var iceServers = safeCopyArray(
+                configuration.iceServers,
+                function (iceServer) {
+
+                    var url = iceServer.url;
+                    var urls = iceServer.urls;
+
+                    // RTCPeerConnection doesn't iterate through pseudo Arrays of urls.
+                    if (typeof urls !== "undefined" && !(urls instanceof RealArray)) {
+                        urls = [urls];
+                    }
+
+                    return createObject(iceServer, {
+                        url: {
+                            configurable: false, enumerable: false, writable: false,
+                            value: urlToString(url)
+                        },
+                        urls: {
+                            configurable: false, enumerable: false, writable: false,
+                            value: safeCopyArray(urls, urlToString)
+                        }
+                    });
+                }
+            );
+
+            return createObject(configuration, {
+                iceServers: {
+                    configurable: false, enumerable: false, writable: false,
+                    value: iceServers
+                }
+            });
+        }
+
+        /**
+         * Check WebRTC connection's URL and close if it's blocked by rule
+         * @param connection Connection
+         * @param url URL to check
+         */
+        function checkWebRTCRequest(connection, url) {
+            checkRequest(url, 'WEBRTC', function (blocked) {
+                if (blocked) {
+                    try {
+                        closeRTCPeerConnection(connection);
+                    } catch (e) {
+                        // Ignore exceptions
+                    }
+                }
+            });
+        }
+
+        /**
+         * Check each URL of ice server in configuration for blocking.
+         *
+         * @param connection RTCPeerConnection
+         * @param configuration Configuration for RTCPeerConnection
+         * https://developer.mozilla.org/en-US/docs/Web/API/RTCConfiguration
+         */
+        function checkConfiguration(connection, configuration) {
+
+            if (!configuration || !configuration.iceServers) {
+                return;
+            }
+
+            var iceServers = configuration.iceServers;
+            for (var i = 0; i < iceServers.length; i++) {
+
+                var iceServer = iceServers[i];
+                if (!iceServer) {
+                    continue;
+                }
+
+                if (iceServer.url) {
+                    checkWebRTCRequest(connection, iceServer.url);
+                }
+
+                if (iceServer.urls) {
+                    for (var j = 0; j < iceServer.urls.length; j++) {
+                        checkWebRTCRequest(connection, iceServer.urls[j]);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Overrides setConfiguration method
+         * https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setConfiguration
+         */
+        if (RealRTCPeerConnection.prototype.setConfiguration) {
+
+            var realSetConfiguration = Function.prototype.call.bind(RealRTCPeerConnection.prototype.setConfiguration);
+
+            RealRTCPeerConnection.prototype.setConfiguration = function (configuration) {
+                configuration = protectConfiguration(configuration);
+                // Call the real method first, so that validates the configuration
+                realSetConfiguration(this, configuration);
+                checkConfiguration(this, configuration);
+            };
+        }
+
+        function WrappedRTCPeerConnection(configuration, arg) {
+
+            if (!(this instanceof WrappedRTCPeerConnection)) {
+                return RealRTCPeerConnection();
+            }
+
+            configuration = protectConfiguration(configuration);
+
+            /**
+             * The old webkitRTCPeerConnection constructor takes an optional second argument and we must pass it.
+             */
+            var connection = new RealRTCPeerConnection(configuration, arg);
+            checkConfiguration(connection, configuration);
+            return connection;
+        }
+
+        WrappedRTCPeerConnection.prototype = RealRTCPeerConnection.prototype;
+
+        var boundWrappedRTCPeerConnection = WrappedRTCPeerConnection.bind();
+        copyProperties(RealRTCPeerConnection, boundWrappedRTCPeerConnection, ["caller", "generateCertificate", "name", "prototype"]);
+        RealRTCPeerConnection.prototype.constructor = boundWrappedRTCPeerConnection;
+
+        if ("RTCPeerConnection" in window) {
+            window.RTCPeerConnection = boundWrappedRTCPeerConnection;
+        }
+        if ("webkitRTCPeerConnection" in window) {
+            window.webkitRTCPeerConnection = boundWrappedRTCPeerConnection;
+        }
+    };
+
+    if (shouldOverrideWebSocket) {
+        overrideWebSocket();
+    }
+
+    if (shouldOverrideWebRTC) {
+        overrideWebRTC();
+    }
+})('wrapper-script-280874215336105', false, true);
+} catch (ex) { console.error('Error executing AG js: ' + ex); }
+(function () {
+            var current = document.currentScript;
+            var parent = current && current.parentNode;
+            if (parent) {
+                parent.removeChild(current);
+            }
+        })();</script><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"><script src="toast%20Flutter%20Package_arquivos/gtm" async="async"></script><script src="toast%20Flutter%20Package_arquivos/gtm.js" async="async"></script><meta charset="utf-8"><meta http-equiv="x-ua-compatible" content="ie=edge"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="twitter:card" content="summary"><meta name="twitter:site" content="@dart_lang"><meta name="twitter:description" content="A Flutter Toast plugin."><meta name="twitter:image" content="https://pub.dev/static/hash-t0ljt5cj/img/pub-dev-icon-cover-image.png"><meta property="og:type" content="website"><meta property="og:site_name" content="Dart packages"><meta property="og:title" content="toast | Flutter Package"><meta property="og:description" content="A Flutter Toast plugin."><meta property="og:image" content="https://pub.dev/static/hash-t0ljt5cj/img/pub-dev-icon-cover-image.png"><meta property="og:url" content="https://pub.dev/packages/toast/install"><title>toast | Flutter Package</title><link rel="stylesheet" href="toast%20Flutter%20Package_arquivos/css.css"><link rel="shortcut icon" href="https://pub.dev/static/hash-t0ljt5cj/img/flutter-logo-32x32.png"><link rel="search" type="application/opensearchdescription+xml" title="Dart packages" href="https://pub.dev/osd.xml"><link rel="canonical" href="https://pub.dev/packages/toast/install"><meta name="description" content="A Flutter Toast plugin."><link rel="alternate" type="application/atom+xml" title="Updated Packages Feed for Pub" href="https://pub.dev/feed.atom"><link rel="stylesheet" type="text/css" href="toast%20Flutter%20Package_arquivos/material-components-web.min.css"><link rel="stylesheet" type="text/css" href="toast%20Flutter%20Package_arquivos/style.css"><script src="toast%20Flutter%20Package_arquivos/material-components-web.min.js" defer="defer"></script><script src="toast%20Flutter%20Package_arquivos/script.dart.js" defer="defer"></script><meta name="google-signin-client_id" content="818368855108-e8skaopm5ih5nbb82vhh66k7ft5o7dn3.apps.googleusercontent.com"><script src="toast%20Flutter%20Package_arquivos/platform" defer="defer" gapi_processed="true"></script><meta name="pub-page-data" content="eyJwa2dEYXRhIjp7InBhY2thZ2UiOiJ0b2FzdCIsInZlcnNpb24iOiIwLjMuMCIsImxpa2VzIjoyMjMsImlzRGlzY29udGludWVkIjpmYWxzZX19"><link rel="preload" href="toast%20Flutter%20Package_arquivos/highlight-with-init.js" as="script"></head><body><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MX6DBN9" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript><div class="site-header"><button class="hamburger" aria-label="menu toggle"></button><a class="logo" href="https://pub.dev/"><img class="site-logo" src="toast%20Flutter%20Package_arquivos/pub-dev-logo-2x.png" alt="pub logo" width="135" height="30"></a><div class="site-header-space"></div><div class="site-header-mask"></div><div class="site-header-search"><form action="/packages" method="GET"><input class="site-header-search-input" name="q" placeholder="New search..." autocomplete="on"></form></div><div class="site-header-nav scroll-container"><div class="nav-login-container"><button id="-account-login" class="nav-main-button link">Sign in</button></div><div class="nav-container nav-help-container hoverable"><button class="nav-main-button">Help</button><div class="nav-hover-popup"><div class="nav-table-columns"><div class="nav-table-column"><h3>Pub.dev</h3><a class="nav-link" href="https://pub.dev/help/search" rel="noopener" target="_blank">Searching for packages</a><a class="nav-link" href="https://pub.dev/help/scoring" rel="noopener" target="_blank">Package scoring and pub points</a></div><div class="nav-table-column"><h3>Flutter</h3><a class="nav-link" href="https://flutter.io/using-packages/" rel="noopener" target="_blank">Using packages</a><a class="nav-link" href="https://flutter.io/developing-packages/" rel="noopener" target="_blank">Developing packages and plugins</a><a class="nav-link" href="https://dart.dev/tools/pub/publishing" rel="noopener" target="_blank">Publishing a package</a></div><div class="nav-table-column"><h3>Dart</h3><a class="nav-link" href="https://dart.dev/tools/pub/get-started" rel="noopener" target="_blank">Using packages</a><a class="nav-link" href="https://dart.dev/tools/pub/publishing" rel="noopener" target="_blank">Publishing a package</a></div></div></div></div><div class="nav-container nav-help-container-mobile foldable"><h3 class="foldable-button">Pub.dev <img class="foldable-icon" src="toast%20Flutter%20Package_arquivos/nav-mobile-foldable-icon.svg" alt="icon to toggle folding of the section" width="13" height="6"></h3><div class="foldable-content"><a class="nav-link" href="https://pub.dev/help/search" rel="noopener" target="_blank">Searching for packages</a><a class="nav-link" href="https://pub.dev/help/scoring" rel="noopener" target="_blank">Package scoring and pub points</a></div></div><div class="nav-container nav-help-container-mobile foldable"><h3 class="foldable-button">Flutter <img class="foldable-icon" src="toast%20Flutter%20Package_arquivos/nav-mobile-foldable-icon.svg" alt="icon to toggle folding of the section" width="13" height="6"></h3><div class="foldable-content"><a class="nav-link" href="https://flutter.io/using-packages/" rel="noopener" target="_blank">Using packages</a><a class="nav-link" href="https://flutter.io/developing-packages/" rel="noopener" target="_blank">Developing packages and plugins</a><a class="nav-link" href="https://dart.dev/tools/pub/publishing" rel="noopener" target="_blank">Publishing a package</a></div></div><div class="nav-container nav-help-container-mobile foldable"><h3 class="foldable-button">Dart <img class="foldable-icon" src="toast%20Flutter%20Package_arquivos/nav-mobile-foldable-icon.svg" alt="icon to toggle folding of the section" width="13" height="6"></h3><div class="foldable-content"><a class="nav-link" href="https://dart.dev/tools/pub/get-started" rel="noopener" target="_blank">Using packages</a><a class="nav-link" href="https://dart.dev/tools/pub/publishing" rel="noopener" target="_blank">Publishing a package</a></div></div></div></div><div id="banner-container"></div><main class="container"><div class="detail-wrapper -active -has-info-box"><div class="detail-header -is-loose"><div class="detail-container"><div class="detail-header-outer-block"><div class="detail-header-content-block"><h1 class="title">toast 0.3.0 <span class="pkg-page-title-copy"><img class="pkg-page-title-copy-icon" src="toast%20Flutter%20Package_arquivos/content-copy-icon.svg" alt="icon indicating copy to clipboard operation" title="Copy &quot;toast: ^0.3.0&quot; to clipboard" data-copy-content="toast: ^0.3.0" data-ga-click-event="copy-package-version" width="18" height="18"><div class="pkg-page-title-copy-feedback"><span class="code">toast: ^0.3.0</span> copied to clipboard</div></span></h1><div class="metadata">Published <span><a class="-x-ago" href="" title="Apr 17, 2022" aria-label="Switch between date and elapsed time." aria-role="button">2 months ago</a></span> <span class="package-badge" title="Supports the null safety language feature.">Null safety</span></div><div class="detail-tags-and-like"><div class="detail-tags"><div class="-pub-tag-badge"><span class="tag-badge-main">SDK</span><a class="tag-badge-sub" href="https://pub.dev/packages?q=sdk%3Aflutter" title="Packages compatible with Flutter SDK">Flutter</a></div><div class="-pub-tag-badge"><span class="tag-badge-main">Platform</span><a class="tag-badge-sub" href="https://pub.dev/packages?q=platform%3Aweb" title="Packages compatible with Web platform">web</a></div></div><div class="detail-like"><button id="-pub-like-icon-button" class="mdc-icon-button mdc-ripple-upgraded--unbounded mdc-ripple-upgraded" aria-label="Like this package" data-ga-click-event="toggle-like" aria-pressed="false" style="--mdc-ripple-fg-size: 14px; --mdc-ripple-fg-scale: 1.8571428571428572; --mdc-ripple-left: 6px; --mdc-ripple-top: 6px;"><img class="mdc-icon-button__icon" src="toast%20Flutter%20Package_arquivos/like-inactive.svg" alt="icon indicating liked status (inactive)" width="18" height="18"><img class="mdc-icon-button__icon mdc-icon-button__icon--on" src="toast%20Flutter%20Package_arquivos/like-active.svg" alt="icon indicating liked status (active)" width="18" height="18"></button><span class="likes-count"><span id="likes-count">223</span></span></div></div></div></div></div></div><div class="detail-container"><div class="detail-lead"><div class="detail-metadata-toggle"><div class="detail-metadata-toggle-icon">→</div><h3 class="detail-lead-title">Metadata</h3></div><p class="detail-lead-text">A Flutter Toast plugin.</p><p class="detail-lead-more"><a class="detail-metadata-toggle">More...</a></p></div></div><div class="detail-body"><div class="detail-tabs"><div class="detail-tabs-wide-header"><div class="detail-container"><ul class="detail-tabs-header"><li class="detail-tab tab-link detail-tab-readme-title" role="button"><a href="https://pub.dev/packages/toast">Readme</a></li><li class="detail-tab tab-link detail-tab-changelog-title" role="button"><a href="https://pub.dev/packages/toast/changelog">Changelog</a></li><li class="detail-tab tab-link detail-tab-example-title" role="button"><a href="https://pub.dev/packages/toast/example">Example</a></li><li class="detail-tab tab-button detail-tab-installing-title -active" role="button">Installing</li><li class="detail-tab tab-link detail-tab-versions-title" role="button"><a href="https://pub.dev/packages/toast/versions">Versions</a></li><li class="detail-tab tab-link detail-tab-analysis-title" role="button"><a href="https://pub.dev/packages/toast/score">Scores</a></li></ul></div></div><div class="detail-container detail-body-main"><div class="detail-tabs-content"><section class="tab-content detail-tab-installing-content -active markdown-body"><h2>Use this package as a library</h2><h3>Depend on it</h3><p>Run this command:</p><p>With Flutter:</p><div class="-pub-pre-copy-container"><pre data-text-to-copy="flutter pub add toast"><code class="language-shell hljs"><span class="hljs-meta"> $ </span><span class="language-bash">flutter pub add toast</span></code></pre><div class="-pub-pre-copy-button" title="copy to clipboard"></div><div class="-pub-pre-copy-feedback">copied to clipboard</div></div><p>This will add a line like this to your package's pubspec.yaml (and run an implicit <code>flutter pub get</code>):</p><div class="-pub-pre-copy-container"><pre><code class="language-yaml hljs"><span class="hljs-attr">dependencies:</span>
+  <span class="hljs-attr">toast:</span> <span class="hljs-string">^0.3.0</span></code></pre><div class="-pub-pre-copy-button" title="copy to clipboard"></div><div class="-pub-pre-copy-feedback">copied to clipboard</div></div><p>Alternatively, your editor might support <code>flutter pub get</code>. Check the docs for your editor to learn more.</p><h3>Import it</h3><p>Now in your Dart code, you can use:</p><div class="-pub-pre-copy-container"><pre><code class="language-dart hljs"><span class="hljs-keyword">import</span> <span class="hljs-string">'package:toast/toast.dart'</span>;</code></pre><div class="-pub-pre-copy-button" title="copy to clipboard"></div><div class="-pub-pre-copy-feedback">copied to clipboard</div></div></section></div></div></div><aside class="detail-info-box"><a class="packages-scores" href="https://pub.dev/packages/toast/score"><div class="packages-score packages-score-like"><div class="packages-score-value -has-value"><span class="packages-score-value-number">223</span><span class="packages-score-value-sign"></span></div><div class="packages-score-label">likes</div></div><div class="packages-score packages-score-health"><div class="packages-score-value -has-value"><span class="packages-score-value-number">100</span><span class="packages-score-value-sign"></span></div><div class="packages-score-label">pub points</div></div><div class="packages-score packages-score-popularity"><div class="packages-score-value -has-value"><span class="packages-score-value-number">98</span><span class="packages-score-value-sign">%</span></div><div class="packages-score-label">popularity</div></div></a><h3 class="title">Publisher</h3><p><span>unverified uploader</span></p><h3 class="title pkg-infobox-metadata">Metadata</h3><p>A Flutter Toast plugin.</p><p><a class="link" href="https://github.com/huclengyue/FlutterToast" rel="ugc">Homepage</a><br></p><h3 class="title">Documentation</h3><p><a class="link" href="https://pub.dev/documentation/toast/latest/">API reference</a><br></p><h3 class="title">License</h3><p><img class="inline-icon-img" src="toast%20Flutter%20Package_arquivos/material-icon-balance.svg" alt="Icon for licenses." width="14" height="14">MIT (<a href="https://pub.dev/packages/toast/license">LICENSE</a>)</p><h3 class="title">Dependencies</h3><p><a href="https://api.flutter.dev/">flutter</a>, <a href="https://api.flutter.dev/flutter/package-flutter_web_plugins_flutter_web_plugins/package-flutter_web_plugins_flutter_web_plugins-library.html">flutter_web_plugins</a></p><h3 class="title">More</h3><p><a href="https://pub.dev/packages?q=dependency%3Atoast" rel="nofollow">Packages that depend on toast</a></p></aside></div><script type="application/ld+json">{"@context":"http\u003a\u002f\u002fschema.org","@type":"SoftwareSourceCode","name":"toast","version":"0.3.0","description":"toast - A Flutter Toast plugin.","url":"https\u003a\u002f\u002fpub.dev\u002fpackages\u002ftoast","dateCreated":"2018-12-25T07\u003a24\u003a04.899515Z","dateModified":"2022-04-17T07\u003a11\u003a34.243623Z","programmingLanguage":"Dart","image":"https\u003a\u002f\u002fpub.dev\u002fstatic\u002fimg\u002fpub-dev-icon-cover-image.png","license":"https\u003a\u002f\u002fpub.dev\u002fpackages\u002ftoast\u002flicense"}</script></div><div class="detail-metadata"><h3 class="detail-metadata-title"><span class="detail-metadata-toggle">←</span> Metadata</h3><div class="detail-info-box"><a class="packages-scores" href="https://pub.dev/packages/toast/score"><div class="packages-score packages-score-like"><div class="packages-score-value -has-value"><span class="packages-score-value-number">223</span><span class="packages-score-value-sign"></span></div><div class="packages-score-label">likes</div></div><div class="packages-score packages-score-health"><div class="packages-score-value -has-value"><span class="packages-score-value-number">100</span><span class="packages-score-value-sign"></span></div><div class="packages-score-label">pub points</div></div><div class="packages-score packages-score-popularity"><div class="packages-score-value -has-value"><span class="packages-score-value-number">98</span><span class="packages-score-value-sign">%</span></div><div class="packages-score-label">popularity</div></div></a><h3 class="title">Publisher</h3><p><span>unverified uploader</span></p><h3 class="title pkg-infobox-metadata">Metadata</h3><p>A Flutter Toast plugin.</p><p><a class="link" href="https://github.com/huclengyue/FlutterToast" rel="ugc">Homepage</a><br></p><h3 class="title">Documentation</h3><p><a class="link" href="https://pub.dev/documentation/toast/latest/">API reference</a><br></p><h3 class="title">License</h3><p><img class="inline-icon-img" src="toast%20Flutter%20Package_arquivos/material-icon-balance.svg" alt="Icon for licenses." width="14" height="14">MIT (<a href="https://pub.dev/packages/toast/license">LICENSE</a>)</p><h3 class="title">Dependencies</h3><p><a href="https://api.flutter.dev/">flutter</a>, <a href="https://api.flutter.dev/flutter/package-flutter_web_plugins_flutter_web_plugins/package-flutter_web_plugins_flutter_web_plugins-library.html">flutter_web_plugins</a></p><h3 class="title">More</h3><p><a href="https://pub.dev/packages?q=dependency%3Atoast" rel="nofollow">Packages that depend on toast</a></p></div><p class="detail-lead-back"><a class="detail-metadata-toggle">Back</a></p></div></main><footer class="site-footer"><a class="link" href="https://dart.dev/">Dart language</a><a class="link sep" href="https://pub.dev/policy">Policy</a><a class="link sep" href="https://www.google.com/intl/en/policies/terms/">Terms</a><a class="link sep" href="https://developers.google.com/terms/">API Terms</a><a class="link sep" href="https://pub.dev/security">Security</a><a class="link sep" href="https://www.google.com/intl/en/policies/privacy/">Privacy</a><a class="link sep" href="https://pub.dev/help">Help</a><a class="link icon sep" href="https://pub.dev/feed.atom"><img class="inline-icon" src="toast%20Flutter%20Package_arquivos/rss-feed-icon.svg" alt="RSS icon" title="RSS/atom feed" width="20" height="20"></a><a class="link icon github_issue" href="https://github.com/dart-lang/pub-dev/issues/new?body=URL%3A+https%3A%2F%2Fpub.dev%2Fpackages%2Ftoast%2Finstall%0A%0A%3CDescribe+your+issue+or+suggestion+here%3E&amp;title=%3CSummarize+your+issues+here%3E&amp;labels=Area%3A+site+feedback"><img class="inline-icon" src="toast%20Flutter%20Package_arquivos/bug-report-white-96px.png" alt="bug report icon" title="Report an issue with this site" width="20" height="20"></a></footer><script src="toast%20Flutter%20Package_arquivos/highlight-with-init.js" defer="defer"></script><iframe id="ssIFrame_google" sandbox="allow-scripts allow-same-origin allow-storage-access-by-user-activation" style="position: absolute; width: 1px; height: 1px; inset: -9999px; display: none;" aria-hidden="true" frame-border="0" src="toast%20Flutter%20Package_arquivos/iframe.htm"></iframe><script type="text/javascript" src="toast%20Flutter%20Package_arquivos/script.dart.js_6.part.js"></script><script type="text/javascript" src="toast%20Flutter%20Package_arquivos/script.dart.js_7.part.js"></script><script type="text/javascript" src="toast%20Flutter%20Package_arquivos/script.dart.js_5.part.js"></script><script type="text/javascript" src="toast%20Flutter%20Package_arquivos/script.dart.js_4.part.js"></script><script type="text/javascript" src="toast%20Flutter%20Package_arquivos/script.dart.js_9.part.js"></script><script type="text/javascript" src="toast%20Flutter%20Package_arquivos/script.dart.js_8.part.js"></script></body></html>
