@@ -3,23 +3,14 @@ const MANIFEST = 'flutter-app-manifest';
 const TEMP = 'flutter-temp-cache';
 const CACHE_NAME = 'flutter-app-cache';
 const RESOURCES = {
-  "assets/AssetManifest.json": "a8ef47b8a608fa5f060e0a89443f4a6d",
-"assets/assets/about.lottie.json": "b96a691da78caa01182daa9e764147a2",
-"assets/assets/ProfEPT.png": "9a8ed808cf27e750bcd75fb1cd6df1c7",
-"assets/assets/toast%2520Flutter%2520Package.htm": "341172e5804f277da2d2a2528f88e7dc",
-"assets/FontManifest.json": "87e04ddd47dc3c85e29dd1916b289700",
+  "assets/AssetManifest.json": "7f7404c376570752ddddd74ea80dee28",
+"assets/assets/bar1.png": "2717e837742bad780d24654a1462e5fd",
+"assets/assets/bar2.png": "1605455e38e723f45b7ec0bd7405fb48",
+"assets/assets/bar3.png": "4965e656892cd404dbb971bfd6ba2212",
+"assets/FontManifest.json": "dc3d03800ccca4601324923c0b1d6d57",
 "assets/fonts/MaterialIcons-Regular.otf": "95db9098c58fd6db106f1116bae85a0b",
-"assets/NOTICES": "d89365db134a3ab23226a261cd034278",
+"assets/NOTICES": "c5a0efb7c0ff830d1117033cbe62a89f",
 "assets/packages/cupertino_icons/assets/CupertinoIcons.ttf": "6d342eb68f170c97609e9da345464e5e",
-"assets/packages/flutterfire_ui/assets/countries.json": "8c937aac9f3b69162be779fbcd6199d2",
-"assets/packages/flutterfire_ui/assets/fonts/SocialIcons.ttf": "a1207fae1578da27a062cb73d424aed9",
-"assets/packages/flutterfire_ui/assets/icons/apple_dark.svg": "1b587ffd7d75c462847f8137a93f3161",
-"assets/packages/flutterfire_ui/assets/icons/apple_light.svg": "2508cc7c5d302fd37edff1b87fedb594",
-"assets/packages/flutterfire_ui/assets/icons/facebook.svg": "5fad3daafe7c7c5163fca56662d2738a",
-"assets/packages/flutterfire_ui/assets/icons/google.svg": "3b5ceaea5e2391782d39df225a375d5d",
-"assets/packages/flutterfire_ui/assets/icons/twitter.svg": "6086e2aad26effea1344c8e118520e32",
-"assets/packages/toast/assets/toastify.css": "a85675050054f179444bc5ad70ffc635",
-"assets/packages/toast/assets/toastify.js": "e7006a0a033d834ef9414d48db3be6fc",
 "canvaskit/canvaskit.js": "c2b4e5f3d7a3d82aed024e7249a78487",
 "canvaskit/canvaskit.wasm": "4b83d89d9fecbea8ca46f2f760c5a9ba",
 "canvaskit/profiling/canvaskit.js": "ae2949af4efc61d28a4a80fffa1db900",
@@ -30,11 +21,11 @@ const RESOURCES = {
 "icons/Icon-512.png": "96e752610906ba2a93c65f8abe1645f1",
 "icons/Icon-maskable-192.png": "c457ef57daa1d16f64b27b786ec2ea3c",
 "icons/Icon-maskable-512.png": "301a7604d45b3e739efc881eb04896ea",
-"index.html": "fd0b0b877ac41f90edf4151f958b7809",
-"/": "fd0b0b877ac41f90edf4151f958b7809",
-"main.dart.js": "fced5a561d40adcedbc76203502733e3",
-"manifest.json": "ed77da0a5614f19fdea6fc045b9908f2",
-"version.json": "8cc4fd3a0e0d96619bd684c71dafdb41"
+"index.html": "3e5f453712b0328c1458bffa45e8d94e",
+"/": "3e5f453712b0328c1458bffa45e8d94e",
+"main.dart.js": "bc8f82609eda2dd1dbc37b20730bc08a",
+"manifest.json": "787cdb6a48cba228bd192946a8251f3f",
+"version.json": "8b980c79a7908f4b331ab7188c46b499"
 };
 
 // The application shell files that are downloaded before a service worker can
